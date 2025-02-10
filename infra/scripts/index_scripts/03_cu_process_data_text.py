@@ -1,4 +1,6 @@
 import json
+import logging
+import struct
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from content_understanding_client import AzureContentUnderstandingClient
@@ -6,7 +8,7 @@ from azure.keyvault.secrets import SecretClient
 from openai import AzureOpenAI
 import pandas as pd
 
-import pymssql
+import pyodbc
 import re
 
 from datetime import datetime
@@ -28,7 +30,49 @@ def get_secrets_from_kv(kv_name, secret_name):
     secret_client =  SecretClient(vault_url=f"https://{key_vault_name}.vault.azure.net/", credential=credential)  
     return(secret_client.get_secret(secret_name).value)
 
+# get database connection
+def get_db_connection():
+    driver = "{ODBC Driver 18 for SQL Server}"
+    server =  get_secrets_from_kv(key_vault_name,"SQLDB-SERVER")
+    database = get_secrets_from_kv(key_vault_name,"SQLDB-DATABASE")
+    username =  get_secrets_from_kv(key_vault_name,"SQLDB-USERNAME")
+    password =  get_secrets_from_kv(key_vault_name,"SQLDB-PASSWORD")
 
+    # Attempt connection using Username & Password
+    try:
+        credential = DefaultAzureCredential()
+
+        token_bytes = credential.get_token(
+            "https://database.windows.net/.default"
+        ).token.encode("utf-16-LE")
+        token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+        SQL_COPT_SS_ACCESS_TOKEN = (
+            1256  # This connection option is defined by microsoft in msodbcsql.h
+        )
+
+        # Set up the connection
+        connection_string = (
+            f'Driver={driver};'
+            f'Server=tcp:{server},1433;'
+            f'Database={database};'
+            f'Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
+            )
+        conn = pyodbc.connect(
+            connection_string, attrs_before={SQL_COPT_SS_ACCESS_TOKEN: token_struct}
+        )
+
+        logging.info("Connected using Default Azure Credential")
+
+        return conn
+    except pyodbc.Error as e:
+        logging.error(f"Failed with Default Credential: {str(e)}")
+        conn = pyodbc.connect(
+            f"DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}",
+            timeout=5
+        )
+        logging.info("Connected using Username & Password")
+        return conn
+    
 search_endpoint = get_secrets_from_kv(key_vault_name,"AZURE-SEARCH-ENDPOINT")
 search_key =  get_secrets_from_kv(key_vault_name,"AZURE-SEARCH-KEY")
 
@@ -142,7 +186,7 @@ username =  get_secrets_from_kv(key_vault_name,"SQLDB-USERNAME")
 password =  get_secrets_from_kv(key_vault_name,"SQLDB-PASSWORD")
 
 
-conn = pymssql.connect(server, username, password, database)
+conn = get_db_connection()
 cursor = conn.cursor()
 print("Connected to the database")
 cursor.execute('DROP TABLE IF EXISTS processed_data')
@@ -365,7 +409,7 @@ with open(sample_processed_data_file, "r") as f:
     data = json.load(f)
 
 data_list = [list(record.values()) for record in data]
-conn.bulk_copy(import_table,data_list)
+cursor.executemany(f'INSERT INTO {import_table} (ConversationId, EndTime, StartTime, Content,summary,satisfied,sentiment,topic,key_phrases,complaint, mined_topic) VALUES (?,?,?,?,?,?,?,?,?,?,?)',data_list)
 conn.commit()
 
 # for row in data:
@@ -386,7 +430,7 @@ with open(sample_processed_data_file, "r") as f:
     data = json.load(f)
 
 data_list = [list(record.values()) for record in data]
-conn.bulk_copy(import_table,data_list)
+cursor.executemany(f'INSERT INTO {import_table} (ConversationId, key_phrase, sentiment, topic, StartTime) VALUES (?,?,?,?,?)',data_list)
 conn.commit()
 
 # for row in data:
@@ -421,7 +465,7 @@ conn.commit()
 
 # print("Created mined topics table")
 
-topics_str = ', '.join(df['topic'].tolist())
+topics_str = ', '.join(str(row) for row in df['topic'])
 
 client = AzureOpenAI(  
         azure_endpoint=openai_api_base,  
@@ -630,7 +674,7 @@ cursor.execute(sql_stmt)
 rows = cursor.fetchall()
 data_list = [list(row) for row in rows]
 import_table = 'km_processed_data'
-conn.bulk_copy(import_table,data_list)
+cursor.executemany(f'INSERT INTO {import_table} (ConversationId,StartTime,EndTime,Content,summary,satisfied,sentiment,keyphrases,complaint,topic) VALUES (?,?,?,?,?,?,?,?,?,?)',data_list)
 # column_names = [i[0] for i in cursor.description]
 # df = pd.DataFrame(rows, columns=column_names)
 # for idx, row in df.iterrows():

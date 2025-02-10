@@ -22,12 +22,17 @@ curl --output "sample_processed_data.json" ${baseUrl}"infra/data/sample_processe
 curl --output "sample_processed_data_key_phrases.json" ${baseUrl}"infra/data/sample_processed_data_key_phrases.json"
 curl --output "sample_search_index_data.json" ${baseUrl}"infra/data/sample_search_index_data.json"
 
-# RUN apt-get update
-# RUN apt-get install python3 python3-dev g++ unixodbc-dev unixodbc libpq-dev
-# apk add python3 python3-dev g++ unixodbc-dev unixodbc libpq-dev
- 
-# # RUN apt-get install python3 python3-dev g++ unixodbc-dev unixodbc libpq-dev
-# pip install pyodbc
+# Install system dependencies for pyodbc
+echo "Installing system packages..."
+apk add --no-cache --virtual .build-deps \
+    build-base \
+    unixodbc-dev
+#Download the desired package(s)
+curl -O https://download.microsoft.com/download/7/6/d/76de322a-d860-4894-9945-f0cc5d6a45f8/msodbcsql18_18.4.1.1-1_amd64.apk
+curl -O https://download.microsoft.com/download/7/6/d/76de322a-d860-4894-9945-f0cc5d6a45f8/mssql-tools18_18.4.1.1-1_amd64.apk
+#Install the package(s)
+apk add --allow-untrusted msodbcsql18_18.4.1.1-1_amd64.apk
+apk add --allow-untrusted mssql-tools18_18.4.1.1-1_amd64.apk
 
 # Download the requirement file
 curl --output "$requirementFile" "$requirementFileUrl"
