@@ -32,6 +32,7 @@ def get_secrets_from_kv(kv_name, secret_name):
 
 # get database connection
 def get_db_connection():
+    driver = "{ODBC Driver 18 for SQL Server}"
     server =  get_secrets_from_kv(key_vault_name,"SQLDB-SERVER")
     database = get_secrets_from_kv(key_vault_name,"SQLDB-DATABASE")
     username =  get_secrets_from_kv(key_vault_name,"SQLDB-USERNAME")
@@ -51,7 +52,7 @@ def get_db_connection():
 
         # Set up the connection
         connection_string = (
-            f'Driver={{ODBC Driver 18 for SQL Server}};'
+            f'Driver={driver};'
             f'Server=tcp:{server},1433;'
             f'Database={database};'
             f'Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
@@ -464,7 +465,7 @@ conn.commit()
 
 # print("Created mined topics table")
 
-topics_str = ', '.join(df['topic'].tolist())
+topics_str = ', '.join(str(row) for row in df['topic'])
 
 client = AzureOpenAI(  
         azure_endpoint=openai_api_base,  
