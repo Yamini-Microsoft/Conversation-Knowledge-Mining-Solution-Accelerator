@@ -32,7 +32,6 @@ def get_secrets_from_kv(kv_name, secret_name):
 
 # get database connection
 def get_db_connection():
-    driver = "{ODBC Driver 17 for SQL Server}"
     server =  get_secrets_from_kv(key_vault_name,"SQLDB-SERVER")
     database = get_secrets_from_kv(key_vault_name,"SQLDB-DATABASE")
     username =  get_secrets_from_kv(key_vault_name,"SQLDB-USERNAME")
@@ -409,7 +408,7 @@ with open(sample_processed_data_file, "r") as f:
     data = json.load(f)
 
 data_list = [list(record.values()) for record in data]
-conn.bulk_copy(import_table,data_list)
+cursor.executemany(f'INSERT INTO {import_table} (ConversationId, EndTime, StartTime, Content,summary,satisfied,sentiment,topic,key_phrases,complaint, mined_topic) VALUES (?,?,?,?,?,?,?,?,?,?,?)',data_list)
 conn.commit()
 
 # for row in data:
@@ -430,7 +429,7 @@ with open(sample_processed_data_file, "r") as f:
     data = json.load(f)
 
 data_list = [list(record.values()) for record in data]
-conn.bulk_copy(import_table,data_list)
+cursor.executemany(f'INSERT INTO {import_table} (ConversationId, key_phrase, sentiment, topic, StartTime) VALUES (?,?,?,?,?)',data_list)
 conn.commit()
 
 # for row in data:
@@ -674,7 +673,7 @@ cursor.execute(sql_stmt)
 rows = cursor.fetchall()
 data_list = [list(row) for row in rows]
 import_table = 'km_processed_data'
-conn.bulk_copy(import_table,data_list)
+cursor.executemany(f'INSERT INTO {import_table} (ConversationId,StartTime,EndTime,Content,summary,satisfied,sentiment,keyphrases,complaint,topic) VALUES (?,?,?,?,?,?,?,?,?,?)',data_list)
 # column_names = [i[0] for i in cursor.description]
 # df = pd.DataFrame(rows, columns=column_names)
 # for idx, row in df.iterrows():
