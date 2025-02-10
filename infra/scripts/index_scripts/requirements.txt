@@ -4,8 +4,7 @@ openai
 pypdf
 pyodbc==5.2.0
 tiktoken
-msal[broker]==1.24.0
-azure-identity
+azure-identity==1.15.0
 azure-ai-textanalytics
 azure-search-documents==11.6.0b3
 azure-keyvault-secrets
