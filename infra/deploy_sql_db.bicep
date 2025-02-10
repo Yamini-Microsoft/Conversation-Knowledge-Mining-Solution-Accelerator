@@ -4,7 +4,8 @@
 param solutionName string
 param solutionLocation string
 param keyVaultName string
-// param managedIdentityObjectId string
+param managedIdentityObjectId string
+param tenantId string
 
 // @description('The name of the SQL logical server.')
 // param serverName string = '${ solutionName }-sql-server'
@@ -38,6 +39,13 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
       publicNetworkAccess: 'Enabled'
       version: '12.0'
       restrictOutboundNetworkAccess: 'Disabled'
+      administrators: {
+        administratorType: 'ActiveDirectory'
+        login: managedIdentity.name 
+        sid: managedIdentityObjectId  // Use the Managed Identity's Object ID as the SID
+        tenantId: tenantId
+        azureADOnlyAuthentication: false
+      }
     }
 }
 
@@ -113,6 +121,11 @@ resource sqldbDatabasePwd 'Microsoft.KeyVault/vaults/secrets@2021-11-01-preview'
   properties: {
     value: administratorLoginPassword
   }
+}
+
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  scope: resourceGroup()
+  name: managedIdentityObjectId
 }
 
 output sqlServerName string = '${serverName}.database.windows.net'

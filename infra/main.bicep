@@ -142,6 +142,8 @@ module sqlDBModule 'deploy_sql_db.bicep' = {
     solutionName: solutionPrefix
     solutionLocation: secondaryLocation
     keyVaultName: kvault.outputs.keyvaultName
+    managedIdentityObjectId:managedIdentityModule.outputs.managedIdentityOutput.objectId
+    tenantId: subscription().tenantId
   }
   scope: resourceGroup(resourceGroup().name)
 }
