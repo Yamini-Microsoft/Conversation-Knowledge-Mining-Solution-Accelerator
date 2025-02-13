@@ -1,7 +1,9 @@
-name: 'Close stale issues and PRs'
+name: "Manage Stale Issues, PRs & Unmerged Branches"
+
 on:
   schedule:
-    - cron: '30 1 * * *'
+    - cron: '30 1 * * *'  # Runs daily at 1:30 AM UTC
+  workflow_dispatch:  # Allows manual triggering
 
 permissions:
   contents: write
@@ -12,8 +14,39 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - name: Mark Stale Issues and PRs
+        uses: actions/stale@v9
         with:
-          stale-issue-message: 'This issue is stale because it has been open 180 days with no activity. Remove stale label or comment or this will be closed in 30 days.'
+          stale-issue-message: "This issue is stale because it has been open 180 days with no activity. Remove stale label or comment, or it will be closed in 30 days."
+          stale-pr-message: "This PR is stale because it has been open 180 days with no activity. Please update or it will be closed in 30 days."
           days-before-stale: 180
           days-before-close: 30
+          exempt-issue-labels: "keep"
+          exempt-pr-labels: "keep"
+
+  check-unmerged:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Fetch All Branches
+        run: git fetch --all --prune
+
+      - name: List Unmerged Branches
+        run: |
+          echo "Checking for unmerged branches..."
+          UNMERGED=$(git branch -r --no-merged origin/main | grep -v "main" | sed 's/origin\///g')
+          if [ -z "$UNMERGED" ]; then
+            echo "✅ All branches are merged into main!"
+          else
+            echo "❌ Unmerged branches:"
+            echo "$UNMERGED"
+            echo "$UNMERGED" > unmerged_branches.txt
+          fi
+
+      - name: Upload Unmerged Branch List (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: unmerged-branches
+          path: unmerged_branches.txt
