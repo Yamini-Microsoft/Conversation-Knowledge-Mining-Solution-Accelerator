@@ -19,8 +19,8 @@ jobs:
         with:
           stale-issue-message: "This issue is stale because it has been open 180 days with no activity. Remove stale label or comment, or it will be closed in 30 days."
           stale-pr-message: "This PR is stale because it has been open 180 days with no activity. Please update or it will be closed in 30 days."
-          days-before-stale: 180
-          days-before-close: 30
+          days-before-stale: 30  # Changed from 5 to 30 days
+          days-before-close: 60  # Extended close time to 60 days
           exempt-issue-labels: "keep"
           exempt-pr-labels: "keep"
 
