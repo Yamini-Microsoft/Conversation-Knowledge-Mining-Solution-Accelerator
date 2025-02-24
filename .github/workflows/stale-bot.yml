@@ -19,12 +19,12 @@ jobs:
         with:
           stale-issue-message: "This issue is stale because it has been open 180 days with no activity. Remove stale label or comment, or it will be closed in 30 days."
           stale-pr-message: "This PR is stale because it has been open 180 days with no activity. Please update or it will be closed in 30 days."
-          days-before-stale: 30  # Changed from 5 to 30 days
-          days-before-close: 60  # Extended close time to 60 days
+          days-before-stale: 180
+          days-before-close: 30
           exempt-issue-labels: "keep"
           exempt-pr-labels: "keep"
 
-  cleanup-branches:
+  list-stale-branches:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -35,39 +35,32 @@ jobs:
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: List Merged Branches With No Activity in Last 3 Months
+      - name: Identify Stale Merged Branches
         run: |
-          echo "branch_name,last_commit_date" > inactive_branches.csv  # CSV Header
-          echo "Checking merged branches with no activity in the last 3 months..."
+          echo "Branch,Last Commit Date" > stale-branches-report.csv
           
-          for branch_info in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '3 months ago' +%s) '$2 < date {print $1","$2}'); do
-            branch_name=$(echo "$branch_info" | cut -d',' -f1)
-            last_commit_date=$(echo "$branch_info" | cut -d',' -f2)
-
-            if [[ "$branch_name" != "origin/main" && "$branch_name" != "origin/dev" ]]; then
-              branch_name_cleaned=${branch_name#origin/}
-              formatted_date=$(date -d "@$last_commit_date" +'%Y-%m-%d %H:%M:%S')
-              echo "$branch_name_cleaned,$formatted_date" >> inactive_branches.csv
-              echo "Listed inactive branch: $branch_name_cleaned (Last commit: $formatted_date)"
+          echo "Checking merged branches with no activity in the last 5 days..."
+          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:iso8601)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1,$2}'); do
+            if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
+              branch_name=${branch#origin/}
+              last_commit_date=$(git log -1 --format=%ci "$branch")
+              echo "$branch_name,$last_commit_date" >> stale-branches-report.csv
             fi
           done
 
-          echo "Inactive branches have been listed in inactive_branches.csv"
-
-      - name: List PR Approved and Merged Branches Older Than 30 Days
+      - name: Identify Merged PR Branches Older Than 5 Days
         run: |
-          echo "branch_name,merged_at" > merged_pr_branches.csv  # CSV Header
-          echo "Checking branches with PRs approved and merged into main or dev for 30+ days..."
-          
-          for branch_info in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 2592000)) | "\(.head.ref),\(.merged_at)"'); do
-            branch_name=$(echo "$branch_info" | cut -d',' -f1)
-            merged_at=$(echo "$branch_info" | cut -d',' -f2)
-            
-            echo "$branch_name,$merged_at" >> merged_pr_branches.csv
-            echo "Listed merged PR branch: $branch_name (Merged at: $merged_at)"
+          echo "Checking PR branches merged into main or dev for 5+ days..."
+          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
+            last_commit_date=$(git log -1 --format=%ci origin/$branch || echo "Unknown")
+            echo "$branch,$last_commit_date" >> stale-branches-report.csv
           done
-          
-          echo "Merged PR branches have been listed in merged_pr_branches.csv"
-
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Stale Branch Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: stale-branches-report
+          path: stale-branches-report.csv
+          retention-days: 30
