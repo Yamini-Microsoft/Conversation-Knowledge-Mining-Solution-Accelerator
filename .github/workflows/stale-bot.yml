@@ -24,14 +24,15 @@ jobs:
 
       - name: Identify Inactive Branches (More than 5 Days)
         run: |
-          echo "Branch,Last Commit Date" > inactive-branches-report.csv
+          echo "Branch,Last Commit Date,Committed In Branch" > inactive-branches-report.csv
           
           echo "Checking branches that have not had commits in the last 5 days..."
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
               last_commit_date=$(git log -1 --format=%ci "$branch")
-              echo "$branch_name,$last_commit_date" >> inactive-branches-report.csv
+              committed_in_branch=$(git branch -r --contains "$branch" | tr -d ' ' | paste -sd "," -)
+              echo "$branch_name,$last_commit_date,$committed_in_branch" >> inactive-branches-report.csv
             fi
           done
 
@@ -40,7 +41,8 @@ jobs:
           echo "Checking PR branches with no updates in more than 5 days..."
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.updated_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
             last_commit_date=$(git log -1 --format=%ci origin/$branch || echo "Unknown")
-            echo "$branch,$last_commit_date" >> inactive-branches-report.csv
+            committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
+            echo "$branch,$last_commit_date,$committed_in_branch" >> inactive-branches-report.csv
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
