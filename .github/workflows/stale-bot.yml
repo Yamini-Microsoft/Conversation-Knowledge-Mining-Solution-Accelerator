@@ -37,12 +37,12 @@ jobs:
 
       - name: List Active Branches With Recent Activity in Last 2 Days
         run: |
-          echo "branch,last_commit_date,committed_in_branch" > active_branches.csv
+          echo "branch_name,last_commit_date,committed_in_branch" > active_branches.csv
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '2 days ago' +%s) '$2 >= date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
-              committed_in_branch=$(git branch -r --contains "$branch" | grep -Eo "origin/(main|dev)" | head -n 1 | cut -d '/' -f2)
               last_commit_date=$(git log -1 --format=%ci "$branch")
+              committed_in_branch=$(git branch -r --contains "$branch" | grep -Eo "origin/(main|dev)" | head -n 1 | cut -d '/' -f2 || echo "N/A")
               echo "$branch_name,$last_commit_date,$committed_in_branch" >> active_branches.csv
             fi
           done
@@ -51,8 +51,8 @@ jobs:
         run: |
           echo "Checking branches with PRs approved and merged into main or dev in the last 2 days..."
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 >= (now - 172800)) | .head.ref'); do
-            committed_in_branch=$(gh api repos/${{ github.repository }}/pulls --jq ".[] | select(.head.ref == \"$branch\") | .base.ref")
             last_commit_date=$(git log -1 --format=%ci "origin/$branch" || echo "N/A")
+            committed_in_branch=$(gh api repos/${{ github.repository }}/pulls --jq ".[] | select(.head.ref == \"$branch\") | .base.ref" || echo "N/A")
             echo "$branch,$last_commit_date,$committed_in_branch" >> active_branches.csv
           done
         env:
