@@ -1,4 +1,4 @@
-name: "Manage Active Issues, PRs & Branches"
+name: "Manage Active Issues, PRs & Merged Branches"
 
 on:
   schedule:
@@ -11,7 +11,20 @@ permissions:
   pull-requests: write
 
 jobs:
-  active-branches:
+  active:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark Active Issues and PRs
+        uses: actions/stale@v9
+        with:
+          stale-issue-message: "This issue remains active as there has been recent activity."
+          stale-pr-message: "This PR remains active as there has been recent activity."
+          days-before-stale: 180
+          days-before-close: 30
+          exempt-issue-labels: "keep"
+          exempt-pr-labels: "keep"
+
+  cleanup-branches:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -22,45 +35,31 @@ jobs:
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: Create CSV File
-        run: echo "Branch,Last Commit Date,Merged Into,Status" > active-branches-report.csv
-
-      - name: Identify & List Active Branches with No Activity in Last 2 Weeks
+      - name: List Active Branches With Recent Activity in Last 2 Days
         run: |
-          echo "Checking branches with no activity in the last 2 weeks..."
-          for branch_info in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '2 weeks ago' +%s) '$2 < date {print $1","$2}'); do
-            branch=$(echo $branch_info | cut -d',' -f1)
-
-            # Get last commit date in YYYY-MM-DD format
-            last_commit_date=$(git log -1 --format=%cd --date=format:'%Y-%m-%d' origin/$branch 2>/dev/null || echo "Unknown")
-
-            # Get merged into branch (if applicable)
-            merged_into=$(git branch -r --contains origin/$branch | awk -F'/' '{print $NF}' | tr '\n' ',' | sed 's/,$//')
-            merged_into=${merged_into:-"Unknown"}
-
-            echo "$branch,$last_commit_date,$merged_into,Inactive" >> active-branches-report.csv
+          echo "branch_name,base_branch,last_commit_date" > active_branches.csv
+          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '2 days ago' +%s) '$2 >= date {print $1}'); do
+            if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
+              branch_name=${branch#origin/}
+              base_branch=$(git branch -r --contains "$branch" | grep -Eo "origin/(main|dev)" | head -n 1 | cut -d '/' -f2)
+              last_commit_date=$(git log -1 --format=%ci "$branch")
+              echo "$branch_name,$base_branch,$last_commit_date" >> active_branches.csv
+            fi
           done
 
-      - name: Identify & List PR Approved & Merged Branches (Older Than 2 Weeks)
+      - name: List PR Approved and Merged Active Branches in Last 2 Days
         run: |
-          echo "Checking PR branches that were approved and merged more than 2 weeks ago..."
-          for branch_info in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null) | select(.merged_at | fromdateiso8601 < (now - 1209600)) | [.head.ref, .merged_at, .base.ref] | @csv'); do
-            branch=$(echo $branch_info | awk -F, '{print $1}' | tr -d '"')
-
-            # Get last commit date in YYYY-MM-DD format
-            last_commit_date=$(git log -1 --format=%cd --date=format:'%Y-%m-%d' origin/$branch 2>/dev/null || echo "Unknown")
-
-            # Get merged into branch name (including non-main/non-dev branches)
-            merged_into=$(echo $branch_info | awk -F, '{print $3}' | tr -d '"')
-
-            echo "$branch,$last_commit_date,$merged_into,Inactive" >> active-branches-report.csv
+          echo "Checking branches with PRs approved and merged into main or dev in the last 2 days..."
+          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 >= (now - 172800)) | .head.ref'); do
+            base_branch=$(gh api repos/${{ github.repository }}/pulls --jq ".[] | select(.head.ref == \"$branch\") | .base.ref")
+            last_commit_date=$(git log -1 --format=%ci "origin/$branch" || echo "N/A")
+            echo "$branch,$base_branch,$last_commit_date" >> active_branches.csv
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Active Branch Report
+      - name: Upload CSV File
         uses: actions/upload-artifact@v4
         with:
           name: active-branches-report
-          path: active-branches-report.csv
-          retention-days: 30
+          path: active_branches.csv
