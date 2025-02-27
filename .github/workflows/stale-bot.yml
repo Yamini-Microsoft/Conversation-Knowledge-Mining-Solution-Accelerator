@@ -1,4 +1,4 @@
-name: "Manage Stale Issues, PRs & Unmerged Branches"
+name: "Manage Inactive Issues, PRs & Unmerged Branches"
 
 on:
   schedule:
@@ -11,20 +11,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  stale:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Mark Stale Issues and PRs
-        uses: actions/stale@v9
-        with:
-          stale-issue-message: "This issue is stale because it has been open 180 days with no activity. Remove stale label or comment, or it will be closed in 30 days."
-          stale-pr-message: "This PR is stale because it has been open 180 days with no activity. Please update or it will be closed in 30 days."
-          days-before-stale: 180
-          days-before-close: 30
-          exempt-issue-labels: "keep"
-          exempt-pr-labels: "keep"
-
-  cleanup-branches:
+  inactive-branches:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -35,32 +22,33 @@ jobs:
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: List Merged Branches With No Activity in Last 3 Months
+      - name: Identify Inactive Branches (More than 5 Days)
         run: |
-          # Create CSV file with header
-          echo "Branch Name,Last Commit Date,Status" > merged_branches_report.csv
-
-          # List merged branches with no activity in last 3 months
-          echo "Checking merged branches with no activity in the last 3 months..." >> merged_branches_report.csv
-          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '3 months ago' +%s) '$2 < date {print $1}'); do
+          echo "Branch,Last Commit Date,Committed In Branch" > inactive-branches-report.csv
+          
+          echo "Checking branches that have not had commits in the last 5 days..."
+          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
-              last_commit_date=$(git log -1 --format=%ci "origin/$branch_name")
-              echo "$branch_name,$last_commit_date,No Activity" >> merged_branches_report.csv
+              last_commit_date=$(git log -1 --format=%ci "$branch")
+              committed_in_branch=$(git branch -r --contains "$branch" | tr -d ' ' | paste -sd "," -)
+              echo "$branch_name,$last_commit_date,$committed_in_branch" >> inactive-branches-report.csv
             fi
           done
-
-      - name: List PR Approved and Merged Branches Older Than 30 Days
+      - name: Identify PR Branches with No Activity in More Than 5 Days
         run: |
-          # List PR approved and merged branches older than 30 days
-          echo "Checking branches with PRs approved and merged into main or dev for 30+ days..." >> merged_branches_report.csv
-          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 2592000)) | .head.ref'); do
-            last_pr_activity=$(gh api repos/${{ github.repository }}/pulls -q ".[] | select(.head.ref == \"$branch\") | .updated_at")
-            echo "$branch,$last_pr_activity,PR Merged > 30 days" >> merged_branches_report.csv
+          echo "Checking PR branches with no updates in more than 5 days..."
+          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.updated_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
+            last_commit_date=$(git log -1 --format=%ci origin/$branch || echo "Unknown")
+            committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
+            echo "$branch,$last_commit_date,$committed_in_branch" >> inactive-branches-report.csv
           done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload CSV File with Branch Details
+      - name: Upload Inactive Branch Report
         uses: actions/upload-artifact@v4
         with:
-          name: merged-branches-report
-          path: merged_branches_report.csv
+          name: inactive-branches-report
+          path: inactive-branches-report.csv
+          retention-days: 30
