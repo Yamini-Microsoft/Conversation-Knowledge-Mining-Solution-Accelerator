@@ -1,4 +1,4 @@
-name: "Manage Active Issues, PRs & Merged Branches"
+name: "Manage Stale Issues, PRs & Unmerged Branches"
 
 on:
   schedule:
@@ -11,20 +11,20 @@ permissions:
   pull-requests: write
 
 jobs:
-  active:
+  stale:
     runs-on: ubuntu-latest
     steps:
-      - name: Mark Active Issues and PRs
+      - name: Mark Stale Issues and PRs
         uses: actions/stale@v9
         with:
-          stale-issue-message: "This issue remains active as there has been recent activity."
-          stale-pr-message: "This PR remains active as there has been recent activity."
+          stale-issue-message: "This issue is stale because it has been open 180 days with no activity. Remove stale label or comment, or it will be closed in 30 days."
+          stale-pr-message: "This PR is stale because it has been open 180 days with no activity. Please update or it will be closed in 30 days."
           days-before-stale: 180
           days-before-close: 30
           exempt-issue-labels: "keep"
           exempt-pr-labels: "keep"
 
-  cleanup-branches:
+  list-branches:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -35,31 +35,44 @@ jobs:
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: List Active Branches With Recent Activity in Last 2 Days
+      - name: Generate Branch List CSV
         run: |
-          echo "branch_name,last_commit_date,committed_in_branch" > active_branches.csv
-          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '2 days ago' +%s) '$2 >= date {print $1}'); do
+          echo "Branch,Status,Last Activity" > branches.csv
+
+          # Active branches older than 2 days
+          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '2 days ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
-              last_commit_date=$(git log -1 --format=%ci "$branch")
-              committed_in_branch=$(git branch -r --contains "$branch" | grep -Eo "origin/(main|dev)" | head -n 1 | cut -d '/' -f2 || echo "N/A")
-              echo "$branch_name,$last_commit_date,$committed_in_branch" >> active_branches.csv
+              last_activity=$(git log -1 --format="%ci" $branch_name)
+              echo "$branch_name,Active (older than 2 days),$last_activity" >> branches.csv
             fi
           done
 
-      - name: List PR Approved and Merged Active Branches in Last 2 Days
-        run: |
-          echo "Checking branches with PRs approved and merged into main or dev in the last 2 days..."
-          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 >= (now - 172800)) | .head.ref'); do
-            last_commit_date=$(git log -1 --format=%ci "origin/$branch" || echo "N/A")
-            committed_in_branch=$(gh api repos/${{ github.repository }}/pulls --jq ".[] | select(.head.ref == \"$branch\") | .base.ref" || echo "N/A")
-            echo "$branch,$last_commit_date,$committed_in_branch" >> active_branches.csv
+          # Merged branches with no activity in last 3 months
+          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '3 months ago' +%s) '$2 < date {print $1}'); do
+            if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
+              branch_name=${branch#origin/}
+              last_activity=$(git log -1 --format="%ci" $branch_name)
+              echo "$branch_name,Merged (inactive),$last_activity" >> branches.csv
+            fi
           done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload CSV File
+          # PR Approved and Merged Branches Older Than 30 Days
+          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 2592000)) | .head.ref'); do
+            last_activity=$(git log -1 --format="%ci" $branch)
+            echo "$branch,Merged PR,$last_activity" >> branches.csv
+          done
+
+          # Open PR Branches
+          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.state == "open") | .head.ref'); do
+            last_activity=$(git log -1 --format="%ci" $branch)
+            echo "$branch,Open PR,$last_activity" >> branches.csv
+          done
+
+      - name: Upload Branch List CSV
         uses: actions/upload-artifact@v4
         with:
-          name: active-branches-report
-          path: active_branches.csv
+          name: stale-branches-report
+          path: branches.csv
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
