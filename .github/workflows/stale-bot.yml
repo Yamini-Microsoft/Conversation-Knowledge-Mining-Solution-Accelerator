@@ -47,7 +47,7 @@ jobs:
               branch_name=${branch#origin/}
               # Ensure the branch exists locally before getting last commit date
               git fetch origin "$branch_name" || echo "Could not fetch branch: $branch_name"
-              last_commit_date=$(git log -1 --format=%cd --date=local "origin/$branch_name" || echo "Unknown")
+              last_commit_date=$(git log -1 --format=%ci "origin/$branch_name" || echo "Unknown")
               committed_in_branch=$(git branch -r --contains "origin/$branch_name" | tr -d ' ' | paste -sd "," -)
               echo "$branch_name,$last_commit_date,$committed_in_branch" >> merged_branches_report.csv
             fi
@@ -60,7 +60,7 @@ jobs:
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
             # Ensure the branch exists locally before getting last commit date
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
-            last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
+            last_commit_date=$(git log -1 --format=%ci origin/$branch || echo "Unknown")
             committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
             echo "$branch,$last_commit_date,$committed_in_branch" >> merged_branches_report.csv
           done
