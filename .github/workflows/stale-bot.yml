@@ -24,7 +24,7 @@ jobs:
           exempt-issue-labels: "keep"
           exempt-pr-labels: "keep"
 
-  list-branches:
+  cleanup-branches:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -35,44 +35,41 @@ jobs:
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: Generate Branch List CSV
+      - name: List Merged Branches With No Activity in Last 3 Months and PR Approved & Merged Branches Older Than 30 Days
         run: |
-          echo "Branch,Status,Last Activity" > branches.csv
+          # Define CSV header
+          echo "Branch Name,Last Commit Date,Last PR Activity,Status" > merged_branches_report.csv
 
-          # Active branches older than 2 days
-          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '2 days ago' +%s) '$2 < date {print $1}'); do
-            if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
-              branch_name=${branch#origin/}
-              last_activity=$(git log -1 --format="%ci" $branch_name)
-              echo "$branch_name,Active (older than 2 days),$last_activity" >> branches.csv
-            fi
-          done
-
-          # Merged branches with no activity in last 3 months
+          # Get merged branches with no activity in last 3 months
+          echo "Checking merged branches with no activity in the last 3 months..." >> merged_branches_report.csv
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '3 months ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
-              last_activity=$(git log -1 --format="%ci" $branch_name)
-              echo "$branch_name,Merged (inactive),$last_activity" >> branches.csv
+              last_commit_date=$(git log -1 --format=%ci "origin/$branch_name")
+              echo "$branch_name,$last_commit_date,None,No Activity" >> merged_branches_report.csv
             fi
           done
 
-          # PR Approved and Merged Branches Older Than 30 Days
+          # Get merged PR branches older than 30 days
+          echo "Checking branches with PRs approved and merged into main or dev for 30+ days..." >> merged_branches_report.csv
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 2592000)) | .head.ref'); do
-            last_activity=$(git log -1 --format="%ci" $branch)
-            echo "$branch,Merged PR,$last_activity" >> branches.csv
+            last_pr_activity=$(gh api repos/${{ github.repository }}/pulls -q ".[] | select(.head.ref == \"$branch\") | .updated_at")
+            echo "$branch,$last_pr_activity,Approved and Merged,PR Merged > 30 days" >> merged_branches_report.csv
           done
 
-          # Open PR Branches
-          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.state == "open") | .head.ref'); do
-            last_activity=$(git log -1 --format="%ci" $branch)
-            echo "$branch,Open PR,$last_activity" >> branches.csv
+          # Get branches with no active commits or active PRs
+          echo "Checking branches with no active commits or active PRs..." >> merged_branches_report.csv
+          for branch in $(git for-each-ref --format '%(refname:short)' refs/remotes/origin); do
+            last_commit_date=$(git log -1 --format=%ci "origin/$branch")
+            pr_activity=$(gh api repos/${{ github.repository }}/pulls -q ".[] | select(.head.ref == \"$branch\" and .state == \"open\") | .updated_at")
+
+            if [[ -z "$pr_activity" && "$branch" != "origin/main" && "$branch" != "origin/dev" && "$last_commit_date" < $(date -d '3 months ago' +%Y-%m-%d) ]]; then
+              echo "$branch,$last_commit_date,None,No Activity" >> merged_branches_report.csv
+            fi
           done
 
-      - name: Upload Branch List CSV
-        uses: actions/upload-artifact@v4
+      - name: Upload CSV File with Branch Details
+        uses: actions/upload-artifact@v3
         with:
-          name: stale-branches-report
-          path: branches.csv
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: merged-branches-report
+          path: merged_branches_report.csv
