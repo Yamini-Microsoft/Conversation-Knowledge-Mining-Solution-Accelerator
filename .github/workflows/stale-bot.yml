@@ -35,37 +35,28 @@ jobs:
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: List Merged Branches With No Activity in Last 3 Months and PR Approved & Merged Branches Older Than 30 Days
+      - name: List Merged Branches With No Activity in Last 3 Months
         run: |
-          # Define CSV header
-          echo "Branch Name,Last Commit Date,Last PR Activity,Status" > merged_branches_report.csv
+          # Create CSV file with header
+          echo "Branch Name,Last Commit Date,Status" > merged_branches_report.csv
 
-          # Get merged branches with no activity in last 3 months
+          # List merged branches with no activity in last 3 months
           echo "Checking merged branches with no activity in the last 3 months..." >> merged_branches_report.csv
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '3 months ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
               last_commit_date=$(git log -1 --format=%ci "origin/$branch_name")
-              echo "$branch_name,$last_commit_date,None,No Activity" >> merged_branches_report.csv
+              echo "$branch_name,$last_commit_date,No Activity" >> merged_branches_report.csv
             fi
           done
 
-          # Get merged PR branches older than 30 days
+      - name: List PR Approved and Merged Branches Older Than 30 Days
+        run: |
+          # List PR approved and merged branches older than 30 days
           echo "Checking branches with PRs approved and merged into main or dev for 30+ days..." >> merged_branches_report.csv
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 2592000)) | .head.ref'); do
             last_pr_activity=$(gh api repos/${{ github.repository }}/pulls -q ".[] | select(.head.ref == \"$branch\") | .updated_at")
-            echo "$branch,$last_pr_activity,Approved and Merged,PR Merged > 30 days" >> merged_branches_report.csv
-          done
-
-          # Get branches with no active commits or active PRs
-          echo "Checking branches with no active commits or active PRs..." >> merged_branches_report.csv
-          for branch in $(git for-each-ref --format '%(refname:short)' refs/remotes/origin); do
-            last_commit_date=$(git log -1 --format=%ci "origin/$branch")
-            pr_activity=$(gh api repos/${{ github.repository }}/pulls -q ".[] | select(.head.ref == \"$branch\" and .state == \"open\") | .updated_at")
-
-            if [[ -z "$pr_activity" && "$branch" != "origin/main" && "$branch" != "origin/dev" && "$last_commit_date" < $(date -d '3 months ago' +%Y-%m-%d) ]]; then
-              echo "$branch,$last_commit_date,None,No Activity" >> merged_branches_report.csv
-            fi
+            echo "$branch,$last_pr_activity,PR Merged > 30 days" >> merged_branches_report.csv
           done
 
       - name: Upload CSV File with Branch Details
