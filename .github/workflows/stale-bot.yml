@@ -40,7 +40,7 @@ jobs:
           # Create CSV file with header
           echo "Branch Name,Last Commit Date,Committed In Branch,Action" > merged_branches_report.csv
           # Check merged branches with no activity in the last 5 days
-          echo "Checking merged branches with no activity in the last 5 days..." >> merged_branches_report.csv
+          
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
@@ -55,7 +55,7 @@ jobs:
       - name: List PR Approved and Merged Branches Older Than 5 Days
         run: |
           # Check PR approved and merged branches older than 5 days
-          echo "Checking PR branches with no updates in more than 5 days..." >> merged_branches_report.csv
+          
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
             # Ensure the branch exists locally before getting last commit date
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
@@ -69,7 +69,7 @@ jobs:
       - name: List Open PR Branches With No Activity in Last 5 Days
         run: |
           # Check open PRs with no activity in the last 5 days
-          echo "Checking open PR branches with no updates in the last 5 days..." >> merged_branches_report.csv
+          
           for branch in $(gh api repos/${{ github.repository }}/pulls --state open --jq '.[] | select(.base.ref == "main" or .base.ref == "dev") | .head.ref'); do
             # Ensure the branch exists locally before getting last commit date
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
