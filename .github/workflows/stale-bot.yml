@@ -38,7 +38,7 @@ jobs:
       - name: List Merged Branches With No Activity in Last 5 Days
         run: |
           # Create CSV file with header
-          echo "Branch Name,Last Commit Date,Committed In Branch,Action" > merged_branches_report.csv
+          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > merged_branches_report.csv
           # Check merged branches with no activity in the last 5 days
           
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
@@ -47,8 +47,9 @@ jobs:
               # Ensure the branch exists locally before getting last commit date
               git fetch origin "$branch_name" || echo "Could not fetch branch: $branch_name"
               last_commit_date=$(git log -1 --format=%cd --date=local "origin/$branch_name" || echo "Unknown")
+              committer_name=$(git log -1 --format=%cn "origin/$branch_name" || echo "Unknown")
               committed_in_branch=$(git branch -r --contains "origin/$branch_name" | tr -d ' ' | paste -sd "," -)
-              echo "$branch_name,$last_commit_date,$committed_in_branch,Delete" >> merged_branches_report.csv
+              echo "$branch_name,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches_report.csv
             fi
           done
  
@@ -60,8 +61,9 @@ jobs:
             # Ensure the branch exists locally before getting last commit date
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
+            committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
             committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-            echo "$branch,$last_commit_date,$committed_in_branch,Delete" >> merged_branches_report.csv
+            echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches_report.csv
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,10 +76,11 @@ jobs:
             # Ensure the branch exists locally before getting last commit date
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
+            committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
             if [[ $(date -d "$last_commit_date" +%s) -lt $(date -d '5 days ago' +%s) ]]; then
               # If no commit in the last 5 days, mark for deletion
               committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-              echo "$branch,$last_commit_date,$committed_in_branch,Delete" >> merged_branches_report.csv
+              echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches_report.csv
             fi
           done
         env:
