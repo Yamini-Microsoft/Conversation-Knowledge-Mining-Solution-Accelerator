@@ -32,94 +32,72 @@ jobs:
         with:
           fetch-depth: 0  # Fetch full history for accurate branch checks
 
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install python3-pip -y
+          pip install pandas openpyxl gh
+
       - name: Fetch All Branches
         run: git fetch --all --prune
 
-      - name: List Merged Branches With No Activity in Last 5 Days
+      - name: Generate Branch Cleanup Report
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > merged_branches.csv
-          for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
-            if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
-              branch_name=${branch#origin/}
-              git fetch origin "$branch_name" || echo "Could not fetch branch: $branch_name"
-              last_commit_date=$(git log -1 --format=%cd --date=local "origin/$branch_name" || echo "Unknown")
-              committer_name=$(git log -1 --format=%cn "origin/$branch_name" || echo "Unknown")
-              committed_in_branch=$(git branch -r --contains "origin/$branch_name" | tr -d ' ' | paste -sd "," -)
-              echo "$branch_name,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches.csv
-            fi
-          done
-
-      - name: List PR Approved and Merged Branches Older Than 5 Days
-        run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > pr_approved_merged.csv
-          for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
-            git fetch origin "$branch" || echo "Could not fetch branch: $branch"
-            last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
-            committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
-            committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-            echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> pr_approved_merged.csv
-          done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: List Open PR Branches With No Activity in Last 5 Days
-        run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > open_prs_inactive.csv
-          for branch in $(gh api repos/${{ github.repository }}/pulls --state open --jq '.[] | select(.base.ref == "main" or .base.ref == "dev") | .head.ref'); do
-            git fetch origin "$branch" || echo "Could not fetch branch: $branch"
-            last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
-            committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
-            if [[ $(date -d "$last_commit_date" +%s) -lt $(date -d '5 days ago' +%s) ]]; then
-              committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-              echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> open_prs_inactive.csv
-            fi
-          done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Python Dependencies
-        run: pip install pandas openpyxl
-
-      - name: Generate Excel Report
-        run: |
-          python - <<EOF
+          python3 <<EOF
+          import os
+          import subprocess
           import pandas as pd
+          from datetime import datetime, timedelta
 
-          # Define the CSV files
-          files = {
-              "Merged Branches": "merged_branches.csv",
-              "PR Approved & Merged": "pr_approved_merged.csv",
-              "Open PRs Inactive": "open_prs_inactive.csv"
-          }
+          repo = "${{ github.repository }}"
+          token = "${{ secrets.GITHUB_TOKEN }}"
+          old_date = datetime.now() - timedelta(days=5)
 
-          # Create an Excel writer
-          output_file = "Inactive_Branches_Report.xlsx"
+          def run_cmd(cmd):
+              return subprocess.check_output(cmd, shell=True, text=True).strip().split("\n")
 
-          with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-              for sheet_name, file_name in files.items():
-                  try:
-                      print(f"Processing file: {file_name}")
+          # Lists for Excel Sheets
+          merged_branches = []
+          pr_approved_branches = []
+          open_pr_branches = []
 
-                      # debugging : print the first 10 lines of the file
-                      with open(file_name, "r") as f:
-                          print(f"Contents of {file_name} (first 10 lines):")
-                          print("".join(f.readlines()[:10]))
-                      # read csv with error handling
-                      df = pd.read_csv(file_name, sep=None, engine="python", on_bad_lines="skip")
-                      # save to Excel
-                      df.to_excel(writer, sheet_name=sheet_name, index=False)
-                      print(f"Added {sheet_name} to {output_file}")
-                  except FileNotFoundError:
-                      print(f"File {file_name} not found, skipping...")
-                  except Exception as e:
-                      print(f"Error processing {file_name}: {e}")
+          # List Merged Branches With No Activity in Last 5 Days
+          for branch in run_cmd("git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin"):
+              if not branch.strip():
+                  continue
+              branch_name, timestamp = branch.split()
+              if int(timestamp) < old_date.timestamp() and branch_name not in ["origin/main", "origin/dev"]:
+                  branch_name = branch_name.replace("origin/", "")
+                  last_commit = run_cmd(f"git log -1 --format='%cd' --date=local origin/{branch_name}")[0]
+                  committer = run_cmd(f"git log -1 --format='%cn' origin/{branch_name}")[0]
+                  merged_branches.append([branch_name, last_commit, committer, "Delete"])
 
-          print(f"Excel file '{output_file}' created successfully!")
+          # List PR Approved and Merged Branches Older Than 5 Days
+          pr_branches = run_cmd(f"gh api repos/{repo}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == \"main\" or .base.ref == \"dev\")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'")
+          for branch in pr_branches:
+              last_commit = run_cmd(f"git log -1 --format='%cd' --date=local origin/{branch}")[0]
+              committer = run_cmd(f"git log -1 --format='%cn' origin/{branch}")[0]
+              pr_approved_branches.append([branch, last_commit, committer, "Delete"])
+
+          # List Open PR Branches With No Activity in Last 5 Days
+          open_branches = run_cmd(f"gh api repos/{repo}/pulls --state open --jq '.[] | select(.base.ref == \"main\" or .base.ref == \"dev\") | .head.ref'")
+          for branch in open_branches:
+              last_commit = run_cmd(f"git log -1 --format='%cd' --date=local origin/{branch}")[0]
+              committer = run_cmd(f"git log -1 --format='%cn' origin/{branch}")[0]
+              if datetime.strptime(last_commit, "%a %b %d %H:%M:%S %Y") < old_date:
+                  open_pr_branches.append([branch, last_commit, committer, "Delete"])
+
+          # Create DataFrames for Excel
+          with pd.ExcelWriter("inactive_branches_report.xlsx") as writer:
+              pd.DataFrame(merged_branches, columns=["Branch Name", "Last Commit Date", "Committer", "Action"]).to_excel(writer, sheet_name="Merged Branches", index=False)
+              pd.DataFrame(pr_approved_branches, columns=["Branch Name", "Last Commit Date", "Committer", "Action"]).to_excel(writer, sheet_name="Merged PR Branches", index=False)
+              pd.DataFrame(open_pr_branches, columns=["Branch Name", "Last Commit Date", "Committer", "Action"]).to_excel(writer, sheet_name="Open PR Branches", index=False)
+
           EOF
 
       - name: Upload Excel Report
         uses: actions/upload-artifact@v4
         with:
           name: inactive-branches-report
-          path: Inactive_Branches_Report.xlsx
+          path: inactive_branches_report.xlsx
           retention-days: 30
