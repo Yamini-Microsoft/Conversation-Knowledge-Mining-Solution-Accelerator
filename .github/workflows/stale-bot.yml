@@ -98,10 +98,21 @@ jobs:
           with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
               for sheet_name, file_name in files.items():
                   try:
-                      df = pd.read_csv(file_name)
+                      print(f"Processing file: {file_name}")
+
+                      # debugging : print the first 10 lines of the file
+                      with open(file_name, "r") as f:
+                          print(f"Contents of {file_name} (first 10 lines):")
+                          print("".join(f.readlines()[:10]))
+                      # read csv with error handling
+                      df = pd.read_csv(file_name, sep=None, engine="python", on_bad_lines="skip")
+                      # save to Excel
                       df.to_excel(writer, sheet_name=sheet_name, index=False)
+                      print(f"Added {sheet_name} to {output_file}")
                   except FileNotFoundError:
                       print(f"File {file_name} not found, skipping...")
+                  except Exception as e:
+                      print(f"Error processing {file_name}: {e}")
 
           print(f"Excel file '{output_file}' created successfully!")
           EOF
