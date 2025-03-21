@@ -73,14 +73,14 @@ jobs:
                   merged_branches.append([branch_name, last_commit, committer, "Delete"])
 
           # List PR Approved and Merged Branches Older Than 5 Days
-          pr_branches = run_cmd(f"gh api repos/{repo}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == \"main\" or .base.ref == \"dev\")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'")
+          pr_branches = run_cmd(f"gh api repos/{repo}/pulls --jq "".[] | select(.merged_at != null and (.base.ref == \"main\" or .base.ref == \"dev\")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref"")
           for branch in pr_branches:
               last_commit = run_cmd(f"git log -1 --format='%cd' --date=local origin/{branch}")[0]
               committer = run_cmd(f"git log -1 --format='%cn' origin/{branch}")[0]
               pr_approved_branches.append([branch, last_commit, committer, "Delete"])
 
           # List Open PR Branches With No Activity in Last 5 Days
-          open_branches = run_cmd(f"gh api repos/{repo}/pulls --state open --jq '.[] | select(.base.ref == \"main\" or .base.ref == \"dev\") | .head.ref'")
+          open_branches = run_cmd(f"gh api repos/{repo}/pulls --state open --jq "".[] | select(.base.ref == \"main\" or .base.ref == \"dev\") | .head.ref"")
           for branch in open_branches:
               last_commit = run_cmd(f"git log -1 --format='%cd' --date=local origin/{branch}")[0]
               committer = run_cmd(f"git log -1 --format='%cn' origin/{branch}")[0]
