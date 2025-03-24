@@ -37,41 +37,41 @@ jobs:
  
       - name: List Merged Branches With No Activity in Last 5 Days
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > merged_branches_report.csv
+          echo "Branch Name,Last Commit Date,Committer,Action" > merged_branches_report.csv
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
               git fetch origin "$branch_name" || echo "Could not fetch branch: $branch_name"
               last_commit_date=$(git log -1 --format=%cd --date=local "origin/$branch_name" || echo "Unknown")
               committer_name=$(git log -1 --format=%cn "origin/$branch_name" || echo "Unknown")
-              committed_in_branch=$(git branch -r --contains "origin/$branch_name" | tr -d ' ' | paste -sd "," -)
-              echo "$branch_name,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches_report.csv
+              
+              echo "$branch_name,$last_commit_date,$committer_name,Delete" >> merged_branches_report.csv
             fi
           done
  
       - name: List PR Approved and Merged Branches Older Than 5 Days
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > pr_approved_merged_branches.csv
+          echo "Branch Name,Last Commit Date,Committer,Action" > pr_approved_merged_branches.csv
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
             committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
-            committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-            echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> pr_approved_merged_branches.csv
+            
+            echo "$branch,$last_commit_date,$committer_name,Delete" >> pr_approved_merged_branches.csv
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
  
       - name: List Open PR Branches With No Activity in Last 5 Days
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > open_pr_inactive_branches.csv
+          echo "Branch Name,Last Commit Date,Committer,Action" > open_pr_inactive_branches.csv
           for branch in $(gh api repos/${{ github.repository }}/pulls --state open --jq '.[] | select(.base.ref == "main" or .base.ref == "dev") | .head.ref'); do
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
             committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
             if [[ $(date -d "$last_commit_date" +%s) -lt $(date -d '5 days ago' +%s) ]]; then
-              committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-              echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> open_pr_inactive_branches.csv
+              
+              echo "$branch,$last_commit_date,$committer_name,Delete" >> open_pr_inactive_branches.csv
             fi
           done
         env:
