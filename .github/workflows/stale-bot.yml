@@ -40,10 +40,13 @@ jobs:
  
       - name: Generate Excel Report for Stale Branches
         run: |
+          python3 -c "
           import os
           import subprocess
           import pandas as pd
           from datetime import datetime, timedelta
+          print('Python script executed!')
+          "
 
           # Function to fetch branch details
           def get_branch_details(branch):
