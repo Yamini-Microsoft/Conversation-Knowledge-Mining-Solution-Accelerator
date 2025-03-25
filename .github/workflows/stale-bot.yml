@@ -1,4 +1,3 @@
-
 name: "Manage Stale Issues, PRs & Unmerged Branches"
  
 on:
@@ -38,41 +37,41 @@ jobs:
  
       - name: List Merged Branches With No Activity in Last 5 Days
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > merged_branches_report.csv
+          echo "Branch Name,Last Commit Date,Committer,Action" > merged_branches_report.csv
           for branch in $(git for-each-ref --format '%(refname:short) %(committerdate:unix)' refs/remotes/origin | awk -v date=$(date -d '5 days ago' +%s) '$2 < date {print $1}'); do
             if [[ "$branch" != "origin/main" && "$branch" != "origin/dev" ]]; then
               branch_name=${branch#origin/}
               git fetch origin "$branch_name" || echo "Could not fetch branch: $branch_name"
               last_commit_date=$(git log -1 --format=%cd --date=local "origin/$branch_name" || echo "Unknown")
               committer_name=$(git log -1 --format=%cn "origin/$branch_name" || echo "Unknown")
-              committed_in_branch=$(git branch -r --contains "origin/$branch_name" | tr -d ' ' | paste -sd "," -)
-              echo "$branch_name,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches_report.csv
+              
+              echo "$branch_name,$last_commit_date,$committer_name,Delete" >> merged_branches_report.csv
             fi
           done
  
       - name: List PR Approved and Merged Branches Older Than 5 Days
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > pr_approved_merged_branches.csv
+          echo "Branch Name,Last Commit Date,Committer,Action" > pr_approved_merged_branches.csv
           for branch in $(gh api repos/${{ github.repository }}/pulls --jq '.[] | select(.merged_at != null and (.base.ref == "main" or .base.ref == "dev")) | select(.merged_at | fromdateiso8601 < (now - 432000)) | .head.ref'); do
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
             committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
-            committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-            echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> pr_approved_merged_branches.csv
+            
+            echo "$branch,$last_commit_date,$committer_name,Delete" >> pr_approved_merged_branches.csv
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
  
       - name: List Open PR Branches With No Activity in Last 5 Days
         run: |
-          echo "Branch Name,Last Commit Date,Committer,Committed In Branch,Action" > open_pr_inactive_branches.csv
+          echo "Branch Name,Last Commit Date,Committer,Action" > open_pr_inactive_branches.csv
           for branch in $(gh api repos/${{ github.repository }}/pulls --state open --jq '.[] | select(.base.ref == "main" or .base.ref == "dev") | .head.ref'); do
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
             committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
             if [[ $(date -d "$last_commit_date" +%s) -lt $(date -d '5 days ago' +%s) ]]; then
-              committed_in_branch=$(git branch -r --contains "origin/$branch" | tr -d ' ' | paste -sd "," -)
-              echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> open_pr_inactive_branches.csv
+              
+              echo "$branch,$last_commit_date,$committer_name,Delete" >> open_pr_inactive_branches.csv
             fi
           done
         env:
@@ -83,62 +82,20 @@ jobs:
 
       - name: Merge Reports into Single Excel File
         run: |
-         python - <<EOF
-         import pandas as pd
-         import csv
-  
-  # Read CSV files into dataframes with more robust parsing
-  try:
-      # Try different parsing options to handle inconsistent delimiters
-      df_merged_branches = pd.read_csv("merged_branches_report.csv", 
-                                      engine='python',  
-                                      on_bad_lines='warn')  
-      print("Successfully read merged_branches_report.csv")
-  except Exception as e:
-      print(f"Error reading merged_branches_report.csv: {e}")
-      df_merged_branches = pd.DataFrame() 
-  
-  try:
-      df_pr_merged = pd.read_csv("pr_approved_merged_branches.csv", 
-                                engine='python',
-                                on_bad_lines='warn')
-      print("Successfully read pr_approved_merged_branches.csv")
-  except Exception as e:
-      print(f"Error reading pr_approved_merged_branches.csv: {e}")
-      df_pr_merged = pd.DataFrame()
-  
-  try:
-      df_open_pr = pd.read_csv("open_pr_inactive_branches.csv", 
-                              engine='python', 
-                              on_bad_lines='warn')
-      print("Successfully read open_pr_inactive_branches.csv")
-  except Exception as e:
-      print(f"Error reading open_pr_inactive_branches.csv: {e}")
-      df_open_pr = pd.DataFrame()
-  
-  # Create a single Excel file with multiple sheets
-  excel_file = "stale_branches_report.xlsx"
-  with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-      # Only write non-empty DataFrames
-      if not df_merged_branches.empty:
-          df_merged_branches.to_excel(writer, sheet_name="Merged Branches", index=False)
-      else:
-          pd.DataFrame({"Error": ["Failed to load data"]}).to_excel(writer, sheet_name="Merged Branches", index=False)
-          
-      if not df_pr_merged.empty:
-          df_pr_merged.to_excel(writer, sheet_name="PR Approved Merged", index=False)
-      else:
-          pd.DataFrame({"Error": ["Failed to load data"]}).to_excel(writer, sheet_name="PR Approved Merged", index=False)
-          
-      if not df_open_pr.empty:
-          df_open_pr.to_excel(writer, sheet_name="Open PR Inactive", index=False)
-      else:
-          pd.DataFrame({"Error": ["Failed to load data"]}).to_excel(writer, sheet_name="Open PR Inactive", index=False)
-  
-  print(f"Generated report: {excel_file}")
-  EOF
-
-      
+          python - <<EOF
+          import pandas as pd
+          # Read CSV files into dataframes
+          df_merged_branches = pd.read_csv("merged_branches_report.csv")
+          df_pr_merged = pd.read_csv("pr_approved_merged_branches.csv")
+          df_open_pr = pd.read_csv("open_pr_inactive_branches.csv")
+          # Create a single Excel file with multiple sheets
+          excel_file = "stale_branches_report.xlsx"
+          with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+              df_merged_branches.to_excel(writer, sheet_name="Merged Branches", index=False)
+              df_pr_merged.to_excel(writer, sheet_name="PR Approved Merged", index=False)
+              df_open_pr.to_excel(writer, sheet_name="Open PR Inactive", index=False)
+          print(f"Generated report: {excel_file}")
+          EOF
       - name: Upload Consolidated Excel Report
         uses: actions/upload-artifact@v4
         with:
