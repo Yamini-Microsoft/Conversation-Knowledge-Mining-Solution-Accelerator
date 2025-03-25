@@ -44,7 +44,7 @@ jobs:
               git fetch origin "$branch_name" || echo "Could not fetch branch: $branch_name"
               last_commit_date=$(git log -1 --format=%cd --date=local "origin/$branch_name" || echo "Unknown")
               committer_name=$(git log -1 --format=%cn "origin/$branch_name" || echo "Unknown")
-              committed_in_branch=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin | head -n 1 || echo "Unknown")
+              committed_in_branch=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin --contains $(git log -1 --format=%H "origin/$branch_name") | head -n 1 || echo "Unknown")
 
               echo "$branch_name,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> merged_branches_report.csv
             fi
@@ -57,7 +57,8 @@ jobs:
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
             committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
-            committed_in_branch=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin | head -n 1 || echo "Unknown")
+            
+            committed_in_branch=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin --contains $(git log -1 --format=%H "origin/$branch_name") | head -n 1 || echo "Unknown")
 
             echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> pr_approved_merged_branches.csv
           done
@@ -71,7 +72,8 @@ jobs:
             git fetch origin "$branch" || echo "Could not fetch branch: $branch"
             last_commit_date=$(git log -1 --format=%cd --date=local origin/$branch || echo "Unknown")
             committer_name=$(git log -1 --format=%cn origin/$branch || echo "Unknown")
-            committed_in_branch=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin | head -n 1 || echo "Unknown")
+            committed_in_branch=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin --contains $(git log -1 --format=%H "origin/$branch_name") | head -n 1 || echo "Unknown")
+
 
             if [[ $(date -d "$last_commit_date" +%s) -lt $(date -d '5 days ago' +%s) ]]; then
               echo "$branch,$last_commit_date,$committer_name,$committed_in_branch,Delete" >> open_pr_inactive_branches.csv
